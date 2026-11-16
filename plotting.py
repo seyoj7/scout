@@ -25,9 +25,7 @@ def plot_candles(
     period: int,
     output: str | None,
 ) -> None:
-    times = [
-        datetime.fromtimestamp(candle["time"], tz=IST) for candle in candles
-    ]
+    times = [datetime.fromtimestamp(candle["time"], tz=IST) for candle in candles]
     x_values = mdates.date2num(times)
     spacing = (x_values[-1] - x_values[0]) / max(len(x_values) - 1, 1)
     candle_width = spacing * 0.7
@@ -111,11 +109,8 @@ def plot_candles(
     if unique:
         ax.legend(unique.values(), unique.keys(), loc="upper left")
     exchange_name = "Hyperliquid" if exchange == "hype" else "Binance"
-    ax.set_title(
-        f"{symbol} \u00b7 {interval} \u00b7 RSI {period} entries at 70 / 30", loc="left"
-    )
+    ax.set_title(f"{symbol} \u00b7 {interval} \u00b7 {len(candles)} candles", loc="left")
     ax.set_title(f"Exchange: {exchange_name}", loc="right")
-    ax.set_ylabel("Price (USDT)")
     ax.grid(True, alpha=0.2)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %I:%M %p", tz=IST))
     fig.autofmt_xdate()
