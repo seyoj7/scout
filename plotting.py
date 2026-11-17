@@ -11,7 +11,7 @@ from matplotlib.patches import Rectangle
 
 from alerts import mark_entries, print_alerts
 from data_fetch import fetch_candles
-from indicators import calculate_rsi, simple_moving_average
+from indicators import calculate_rsi, find_displacements, simple_moving_average
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -24,6 +24,7 @@ def plot_candles(
     interval: str,
     period: int,
     output: str | None,
+    displacement_signals: list[dict | None] | None = None,
 ) -> None:
     times = [datetime.fromtimestamp(candle["time"], tz=IST) for candle in candles]
     x_values = mdates.date2num(times)
@@ -33,9 +34,15 @@ def plot_candles(
     price_range = max(prices) - min(prices) or max(prices) * 0.01 or 1
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    for x, candle in zip(x_values, candles):
+    for index, (x, candle) in enumerate(zip(x_values, candles)):
         rising = candle["close"] >= candle["open"]
-        color = "#26a69a" if rising else "#ef5350"
+        signal = displacement_signals[index] if displacement_signals else None
+        if signal:
+            color = "#2E47C7" if signal["direction"] == "bullish" else "#FFFF00"
+            if signal["break"]:
+                color = "#1E3195" if signal["direction"] == "bullish" else "#E6C800"
+        else:
+            color = "#26a69a" if rising else "#ef5350"
         ax.vlines(x, candle["low"], candle["high"], color=color, linewidth=1)
         body_bottom = min(candle["open"], candle["close"])
         body_height = abs(candle["close"] - candle["open"])
@@ -109,7 +116,9 @@ def plot_candles(
     if unique:
         ax.legend(unique.values(), unique.keys(), loc="upper left")
     exchange_name = "Hyperliquid" if exchange == "hype" else "Binance"
-    ax.set_title(f"{symbol} \u00b7 {interval} \u00b7 {len(candles)} candles", loc="left")
+    ax.set_title(
+        f"{symbol} \u00b7 {interval} \u00b7 {len(candles)} candles", loc="left"
+    )
     ax.set_title(f"Exchange: {exchange_name}", loc="right")
     ax.grid(True, alpha=0.2)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %I:%M %p", tz=IST))
@@ -138,7 +147,7 @@ def main() -> int:
         "--interval", default="1d", help="Candle interval, e.g. 5m, 15m, 1h, 1d"
     )
     parser.add_argument(
-        "--limit", type=int, default=200, help="Number of candles to request (1-1000)"
+        "--limit", type=int, default=1000, help="Number of candles to display (1-1000)"
     )
     parser.add_argument("--period", type=int, default=14, help="RSI period")
     parser.add_argument(
@@ -152,19 +161,52 @@ def main() -> int:
         parser.error("--period must be at least 1")
     try:
         symbol = args.symbol.upper()
-        candles = fetch_candles(args.exchange, symbol, args.interval, args.limit)
-        rsi_values = calculate_rsi(candles, args.period)
+        fetch_limit = min(args.limit + 250, 1000)
+        history = fetch_candles(args.exchange, symbol, args.interval, fetch_limit)
+        rsi_values = calculate_rsi(history, args.period)
+        history_marks = mark_entries(rsi_values, 70, 30)
+        history_signals = find_displacements(history)
+        first_visible = max(0, len(history) - args.limit)
+        candles = history[first_visible:]
+        marks = [
+            (index - first_visible, label, value)
+            for index, label, value in history_marks
+            if index >= first_visible
+        ]
+        displacement_signals = history_signals[first_visible:]
     except (RuntimeError, KeyError, TypeError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    marks = mark_entries(rsi_values, 70, 30)
     print(
-        f"Fetched {len(candles)} candles for {symbol} ({args.exchange}, {args.interval})."
+        f"Loaded {len(candles)} chart candles for {symbol} "
+        f"({args.exchange}, {args.interval}) with ATR warm-up history."
     )
     print_alerts(candles, marks)
+    bullish = sum(
+        signal is not None and signal["direction"] == "bullish"
+        for signal in displacement_signals
+    )
+    bearish = sum(
+        signal is not None and signal["direction"] == "bearish"
+        for signal in displacement_signals
+    )
+    breaks = sum(
+        signal is not None and signal["break"] for signal in displacement_signals
+    )
+    print(
+        f"Found {bullish} bullish and {bearish} bearish displacement candles "
+        f"({breaks} structure breaks)."
+    )
     plot_candles(
-        candles, marks, symbol, args.exchange, args.interval, args.period, args.output
+        candles,
+        marks,
+        symbol,
+        args.exchange,
+        args.interval,
+        args.period,
+        args.output,
+        displacement_signals=displacement_signals,
     )
     return 0
 
