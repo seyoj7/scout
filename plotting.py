@@ -9,7 +9,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from alerts import mark_entries, print_alerts
+from mark_entries import find_entries, mark_entries
 from data_fetch import fetch_candles
 from indicators import calculate_rsi, find_displacements, simple_moving_average
 
@@ -164,7 +164,7 @@ def main() -> int:
         fetch_limit = min(args.limit + 250, 1000)
         history = fetch_candles(args.exchange, symbol, args.interval, fetch_limit)
         rsi_values = calculate_rsi(history, args.period)
-        history_marks = mark_entries(rsi_values, 70, 30)
+        history_marks = find_entries(rsi_values, 70, 30)
         history_signals = find_displacements(history)
         first_visible = max(0, len(history) - args.limit)
         candles = history[first_visible:]
@@ -182,7 +182,7 @@ def main() -> int:
         f"Loaded {len(candles)} chart candles for {symbol} "
         f"({args.exchange}, {args.interval}) with ATR warm-up history."
     )
-    print_alerts(candles, marks)
+    mark_entries(candles, marks)
     bullish = sum(
         signal is not None and signal["direction"] == "bullish"
         for signal in displacement_signals

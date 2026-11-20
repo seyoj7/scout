@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 IST = ZoneInfo("Asia/Kolkata")
 
 
-def mark_entries(
+def find_entries(
     rsi_values: list[float | None], upper: float, lower: float
 ) -> list[tuple[int, str, float]]:
     marks = []
@@ -22,7 +22,7 @@ def mark_entries(
     return marks
 
 
-def print_alerts(candles: list[dict], marks: list[tuple[int, str, float]]) -> None:
+def mark_entries(candles: list[dict], marks: list[tuple[int, str, float]]) -> None:
     if marks:
         for index, label, value in marks:
             date = datetime.fromtimestamp(
