@@ -1,1 +1,4 @@
 __pycache__/
+alert_state.json
+.env
+commands.txt
