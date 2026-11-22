@@ -38,7 +38,7 @@ def plot_candles(
         rising = candle["close"] >= candle["open"]
         signal = displacement_signals[index] if displacement_signals else None
         if signal:
-            color = "#2E47C7" if signal["direction"] == "bullish" else "#FFFF00"
+            color = "#60A5FA" if signal["direction"] == "bullish" else "#FFFF00"
             if signal["break"]:
                 color = "#1E3195" if signal["direction"] == "bullish" else "#E6C800"
         else:
@@ -111,6 +111,12 @@ def plot_candles(
             fontsize=8,
         )
 
+    # Keep a small border around the candles and RSI labels while using more
+    # of the available chart area.
+    ax.margins(x=0.01, y=0.10)
+    left_limit, right_limit = ax.get_xlim()
+    ax.set_xlim(left=left_limit, right=right_limit + spacing * 15)
+
     handles, labels = ax.get_legend_handles_labels()
     unique = dict(zip(labels, handles))
     if unique:
@@ -120,11 +126,13 @@ def plot_candles(
         f"{symbol} \u00b7 {interval} \u00b7 {len(candles)} candles", loc="left"
     )
     ax.set_title(f"Exchange: {exchange_name}", loc="right")
+    ax.set_ylabel("Price")
+    ax.format_xdata = lambda x: mdates.num2date(x, tz=IST).strftime("%d-%b-%y %I:%M %p")
+    ax.format_ydata = lambda y: f"{y:,.2f}"
     ax.grid(True, alpha=0.2)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %I:%M %p", tz=IST))
-    fig.autofmt_xdate()
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d-%b-%y", tz=IST))
+    fig.autofmt_xdate(rotation=0, ha="center")
     fig.tight_layout()
-
     if output:
         fig.savefig(output, dpi=160, bbox_inches="tight")
         print(f"Saved chart to {output}")

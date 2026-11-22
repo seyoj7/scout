@@ -1,17 +1,22 @@
 import argparse
 import json
 import os
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
 
 from data_fetch import fetch_candles
-from indicators import find_displacements
+from indicators import calculate_rsi, find_displacements
+from mark_entries import find_entries
 
 INTERVAL = "4h"
 POLL_SECONDS = 60
+CHART_CANDLES = 200
 STATE_FILE = Path(__file__).with_name("alert_state.json")
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def load_env():
@@ -25,25 +30,90 @@ def load_env():
             os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
 
 
-def send_alert(token, chat_id, symbol, candle, signal):
+def _alert_message(symbol, candle, signal):
     direction = signal["direction"].capitalize()
-    candle_time = datetime.fromtimestamp(candle["time"], timezone.utc)
-    message = (
+    candle_time = datetime.fromtimestamp(candle["time"], IST)
+    return (
         f"{direction} 4H displacement: {symbol}\n"
-        f"Candle: {candle_time:%Y-%m-%d %H:%M} UTC\n"
+        f"Time: {candle_time:%Y-%m-%d %I:%M %p} IST\n"
         f"Open: {candle['open']:g}  High: {candle['high']:g}\n"
         f"Low: {candle['low']:g}  Close: {candle['close']:g}\n"
         f"Structure break: {'Yes' if signal['break'] else 'No'}"
     )
+
+
+def _send_telegram_photo(token, chat_id, caption, image_path):
+    boundary = "----ScoutAlertBoundary7MA4YWxkTrZu0gW"
+    image = Path(image_path).read_bytes()
+    body = b"".join(
+        (
+            (
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="chat_id"\r\n\r\n'
+                f"{chat_id}\r\n"
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="caption"\r\n\r\n'
+                f"{caption}\r\n"
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="photo"; filename="alert.png"\r\n'
+                "Content-Type: image/png\r\n\r\n"
+            ).encode("utf-8"),
+            image,
+            f"\r\n--{boundary}--\r\n".encode("ascii"),
+        )
+    )
     request = Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps({"chat_id": chat_id, "text": message}).encode(),
-        headers={"Content-Type": "application/json"},
+        f"https://api.telegram.org/bot{token}/sendPhoto",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
     )
     with urlopen(request, timeout=15) as response:
         result = json.load(response)
     if not result.get("ok"):
         raise RuntimeError(result.get("description", "Telegram send failed"))
+
+
+def send_alert(
+    token,
+    chat_id,
+    symbol,
+    candle,
+    signal,
+    *,
+    chart_candles=None,
+    chart_signals=None,
+    chart_marks=None,
+    exchange="binance",
+):
+    message = _alert_message(symbol, candle, signal)
+    if chart_candles is None:
+        request = Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=json.dumps({"chat_id": chat_id, "text": message}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urlopen(request, timeout=15) as response:
+            result = json.load(response)
+        if not result.get("ok"):
+            raise RuntimeError(result.get("description", "Telegram send failed"))
+        return
+
+    # Build a 200-candle chart and send it as the alert photo with the text caption.
+    from plotting import plot_candles
+
+    with tempfile.TemporaryDirectory() as directory:
+        image_path = Path(directory) / "alert.png"
+        plot_candles(
+            chart_candles,
+            chart_marks or [],
+            symbol,
+            exchange,
+            INTERVAL,
+            14,
+            str(image_path),
+            displacement_signals=chart_signals,
+        )
+        _send_telegram_photo(token, chat_id, message, image_path)
 
 
 def load_state():
@@ -85,10 +155,13 @@ def main():
 
     while True:
         try:
-            candles = fetch_candles(args.exchange, symbol, INTERVAL, 500)
+            fetched_candles = fetch_candles(args.exchange, symbol, INTERVAL, 500)
             now = int(datetime.now(timezone.utc).timestamp())
-            candles = [c for c in candles if c["time"] + 4 * 60 * 60 <= now]
+            candles = [
+                c for c in fetched_candles if c["time"] + 4 * 60 * 60 <= now
+            ]
             signals = find_displacements(candles)
+            rsi_marks = find_entries(calculate_rsi(fetched_candles), 70, 30)
 
             if candles:
                 if last_closed_time is None:
@@ -113,8 +186,30 @@ def main():
                         source = index - 1  # FVG confirms and colors the prior candle.
                         signal = signals[source] if source >= 0 else None
                         if signal is not None:
-                            send_alert(token, chat_id, symbol, candles[source], signal)
-                            print(f"Sent {signal['direction']} alert for {symbol}")
+                            # Add the latest in-progress candle to the image,
+                            # while keeping signal calculations on closed bars.
+                            chart_end = len(fetched_candles)
+                            chart_start = max(0, chart_end - CHART_CANDLES)
+                            chart_signals = signals + [
+                                None
+                            ] * (len(fetched_candles) - len(signals))
+                            chart_marks = [
+                                (mark_index - chart_start, label, value)
+                                for mark_index, label, value in rsi_marks
+                                if chart_start <= mark_index < chart_end
+                            ]
+                            send_alert(
+                                token,
+                                chat_id,
+                                symbol,
+                                candles[source],
+                                signal,
+                                chart_candles=fetched_candles[chart_start:chart_end],
+                                chart_signals=chart_signals[chart_start:chart_end],
+                                chart_marks=chart_marks,
+                                exchange=args.exchange,
+                            )
+                            print(f"Sent {signal['direction']} chart alert for {symbol}")
         except Exception as exc:
             print(f"Alert check failed: {exc}")
 
