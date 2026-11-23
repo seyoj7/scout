@@ -126,7 +126,7 @@ def plot_candles(
         f"{symbol} \u00b7 {interval} \u00b7 {len(candles)} candles", loc="left"
     )
     ax.set_title(f"Exchange: {exchange_name}", loc="right")
-    ax.set_ylabel("Price")
+    ax.yaxis.tick_right()
     ax.format_xdata = lambda x: mdates.num2date(x, tz=IST).strftime("%d-%b-%y %I:%M %p")
     ax.format_ydata = lambda y: f"{y:,.2f}"
     ax.grid(True, alpha=0.2)
