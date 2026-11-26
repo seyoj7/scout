@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.collections import LineCollection, PolyCollection
 
 from mark_entries import find_entries, mark_entries
 from data_fetch import fetch_candles
@@ -33,6 +33,9 @@ def plot_candles(
     prices = [price for candle in candles for price in (candle["low"], candle["high"])]
     price_range = max(prices) - min(prices) or max(prices) * 0.01 or 1
     fig, ax = plt.subplots(figsize=(14, 7))
+    wick_segments: dict[str, list[list[tuple[float, float]]]] = {}
+    doji_segments: dict[str, list[list[tuple[float, float]]]] = {}
+    body_vertices: dict[str, list[list[tuple[float, float]]]] = {}
     for index, (x, candle) in enumerate(zip(x_values, candles)):
         rising = candle["close"] >= candle["open"]
         signal = displacement_signals[index] if displacement_signals else None
@@ -42,28 +45,43 @@ def plot_candles(
                 color = "#1E3195" if signal["direction"] == "bullish" else "#E6C800"
         else:
             color = "#26a69a" if rising else "#ef5350"
-        ax.vlines(x, candle["low"], candle["high"], color=color, linewidth=1)
+        wick_segments.setdefault(color, []).append(
+            [(x, candle["low"]), (x, candle["high"])]
+        )
         body_bottom = min(candle["open"], candle["close"])
         body_height = abs(candle["close"] - candle["open"])
         if body_height == 0:
-            ax.hlines(
-                body_bottom,
-                x - candle_width / 2,
-                x + candle_width / 2,
-                color=color,
-                linewidth=1.5,
+            doji_segments.setdefault(color, []).append(
+                [
+                    (x - candle_width / 2, body_bottom),
+                    (x + candle_width / 2, body_bottom),
+                ]
             )
         else:
-            ax.add_patch(
-                Rectangle(
+            body_vertices.setdefault(color, []).append(
+                [
                     (x - candle_width / 2, body_bottom),
-                    candle_width,
-                    body_height,
-                    facecolor=color,
-                    edgecolor=color,
-                    linewidth=0.8,
-                )
+                    (x + candle_width / 2, body_bottom),
+                    (x + candle_width / 2, body_bottom + body_height),
+                    (x - candle_width / 2, body_bottom + body_height),
+                ]
             )
+
+    # Collections keep the candle layer to a handful of artists, so interactive
+    # pan and zoom do not need to redraw thousands of individual patches/lines.
+    for color, segments in wick_segments.items():
+        ax.add_collection(LineCollection(segments, colors=color, linewidths=1))
+    for color, segments in doji_segments.items():
+        ax.add_collection(LineCollection(segments, colors=color, linewidths=1.5))
+    for color, vertices in body_vertices.items():
+        ax.add_collection(
+            PolyCollection(
+                vertices,
+                facecolors=color,
+                edgecolors=color,
+                linewidths=0.8,
+            )
+        )
 
     sma_50 = simple_moving_average(candles, 50)
     valid_values = [
@@ -154,7 +172,7 @@ def main() -> int:
         "--interval", default="1d", help="Candle interval, e.g. 5m, 15m, 1h, 1d"
     )
     parser.add_argument(
-        "--limit", type=int, default=1000, help="Number of candles to display (1-1000)"
+        "--limit", type=int, default=1000, help="Number of candles to display (default: 1000)"
     )
     parser.add_argument("--period", type=int, default=14, help="RSI period")
     parser.add_argument(
@@ -162,13 +180,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not 1 <= args.limit <= 1000:
-        parser.error("--limit must be between 1 and 1000")
+    if args.limit < 1:
+        parser.error("--limit must be at least 1")
     if args.period < 1:
         parser.error("--period must be at least 1")
     try:
         symbol = args.symbol.upper()
-        fetch_limit = min(args.limit + 300, 1000)
+        fetch_limit = args.limit + 300
         history = fetch_candles(args.exchange, symbol, args.interval, fetch_limit)
         rsi_values = calculate_rsi(history, args.period)
         history_marks = find_entries(rsi_values, 70, 30)

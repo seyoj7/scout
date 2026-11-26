@@ -43,7 +43,7 @@ Save the chart to an image instead of opening a window:
 python plotting.py --symbol BTCUSDT --interval 4h --limit 300 --output chart.png
 ```
 
-Supported interval units are minutes (`m`), hours (`h`), days (`d`), and weeks (`w`), with a positive integer amount (for example, `15m`, `4h`, or `1d`). The chart command accepts a limit from 1 to 1000 and an RSI period of at least 1. It fetches up to 300 extra candles for indicator warm-up, capped at 1000 candles total.
+Supported interval units are minutes (`m`), hours (`h`), days (`d`), and weeks (`w`), with a positive integer amount (for example, `15m`, `4h`, or `1d`). The chart command accepts any positive `--limit` (default 1000) and an RSI period of at least 1. It fetches up to 300 extra candles for indicator warm-up. Binance requests are paginated in batches of at most 1000 candles, allowing histories larger than 1000; the exchange may return fewer candles when the symbol has less available history. Hyperliquid's candle snapshot endpoint may cap the returned history independently of the requested limit.
 
 ### Chart contents
 

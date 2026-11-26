@@ -36,10 +36,31 @@ def interval_seconds(interval: str) -> int:
 
 
 def fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> list[dict]:
+    if limit < 1:
+        raise ValueError("Candle limit must be at least 1")
     if exchange == "binance":
-        query = urlencode({"symbol": symbol, "interval": interval, "limit": limit})
-        request = Request(f"https://api.binance.com/api/v3/klines?{query}")
-        raw = _load_json(request, "Binance")
+        # Binance caps each kline response at 1000 rows. Page backward from
+        # the present so larger chart histories can be assembled from requests.
+        rows: list[Any] = []
+        end_time: int | None = None
+        while len(rows) < limit:
+            page_limit = min(limit - len(rows), 1000)
+            params: dict[str, str | int] = {
+                "symbol": symbol,
+                "interval": interval,
+                "limit": page_limit,
+            }
+            if end_time is not None:
+                params["endTime"] = end_time
+            query = urlencode(params)
+            request = Request(f"https://api.binance.com/api/v3/klines?{query}")
+            page = _load_json(request, "Binance")
+            if not page:
+                break
+            rows = page + rows
+            if len(page) < page_limit:
+                break
+            end_time = int(page[0][0]) - 1
 
         candles = [
             {
@@ -50,7 +71,7 @@ def fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> list
                 "close": float(row[4]),
                 "volume": float(row[5]),
             }
-            for row in raw
+            for row in rows[-limit:]
         ]
     else:
         end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
