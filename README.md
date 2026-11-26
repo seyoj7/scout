@@ -43,7 +43,7 @@ Save the chart to an image instead of opening a window:
 python plotting.py --symbol BTCUSDT --interval 4h --limit 300 --output chart.png
 ```
 
-Supported interval units are minutes (`m`), hours (`h`), days (`d`), and weeks (`w`), with a positive integer amount (for example, `15m`, `4h`, or `1d`). The chart command accepts a limit from 1 to 1000 and an RSI period of at least 1. It fetches up to 250 extra candles for indicator warm-up, capped at 1000 candles total.
+Supported interval units are minutes (`m`), hours (`h`), days (`d`), and weeks (`w`), with a positive integer amount (for example, `15m`, `4h`, or `1d`). The chart command accepts a limit from 1 to 1000 and an RSI period of at least 1. It fetches up to 300 extra candles for indicator warm-up, capped at 1000 candles total.
 
 ### Chart contents
 
@@ -75,7 +75,7 @@ The chart command uses a default RSI period of 14; override it with `--period`. 
 
 | Setting | Default | Meaning |
 | --- | ---: | --- |
-| ATR length | 250 candles | Period for the Wilder-smoothed Average True Range. |
+| ATR length | 300 candles | Period for the Wilder-smoothed Average True Range. |
 | ATR multiplier | 1.5 | Candle high-low range must be at least 1.5 times ATR. |
 | Minimum body | 60% | Candle body must occupy at least this percentage of its high-low range. |
 | Require fair value gap (FVG) | Yes | Requires a directional three-candle gap to confirm displacement. |
@@ -129,6 +129,6 @@ The program does not place orders or manage positions. Exchange/API availability
 ## Troubleshooting
 
 - **Missing Telegram credentials:** confirm `.env` is next to `alert.py` and contains both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
-- **No displacement signals:** the default 250-candle ATR warm-up plus FVG and body/range filters can make qualifying signals uncommon. The chart history may not contain enough candles for ATR to initialize.
+- **No displacement signals:** the default 300-candle ATR warm-up plus FVG and body/range filters can make qualifying signals uncommon. The chart history may not contain enough candles for ATR to initialize.
 - **Invalid symbol or interval:** verify the symbol is supported by the selected exchange and use an interval such as `1h`, `4h`, or `1d`.
 - **Network/API errors:** the chart command reports fetch errors; the alert loop prints a check failure and retries on its next poll.

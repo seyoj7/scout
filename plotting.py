@@ -32,7 +32,6 @@ def plot_candles(
     candle_width = spacing * 0.7
     prices = [price for candle in candles for price in (candle["low"], candle["high"])]
     price_range = max(prices) - min(prices) or max(prices) * 0.01 or 1
-
     fig, ax = plt.subplots(figsize=(14, 7))
     for index, (x, candle) in enumerate(zip(x_values, candles)):
         rising = candle["close"] >= candle["open"]
@@ -169,7 +168,7 @@ def main() -> int:
         parser.error("--period must be at least 1")
     try:
         symbol = args.symbol.upper()
-        fetch_limit = min(args.limit + 250, 1000)
+        fetch_limit = min(args.limit + 300, 1000)
         history = fetch_candles(args.exchange, symbol, args.interval, fetch_limit)
         rsi_values = calculate_rsi(history, args.period)
         history_marks = find_entries(rsi_values, 70, 30)

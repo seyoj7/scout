@@ -73,7 +73,7 @@ def _wilder_atr(candles: list[dict], period: int) -> list[float | None]:
 def find_displacements(
     candles: list[dict],
     *,
-    atr_length: int = 250,
+    atr_length: int = 300,
     atr_multiplier: float = 1.5,
     min_body_pct: float = 60.0,
     require_fvg: bool = True,
