@@ -9,8 +9,7 @@ from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
 
 from data_fetch import fetch_candles
-from indicators import calculate_rsi, find_displacements
-from mark_entries import find_entries
+from indicators import simple_moving_average
 
 INTERVAL = "4h"
 POLL_SECONDS = 60
@@ -30,15 +29,14 @@ def load_env():
             os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
 
 
-def _alert_message(symbol, candle, signal):
-    direction = signal["direction"].capitalize()
+def _alert_message(symbol, candle, sma_value):
     candle_time = datetime.fromtimestamp(candle["time"], IST)
     return (
-        f"{direction} 4H displacement: {symbol}\n"
+        f"4H 50 SMA intersection: {symbol}\n"
         f"Time: {candle_time:%Y-%m-%d %I:%M %p} IST\n"
         f"Open: {candle['open']:g}  High: {candle['high']:g}\n"
         f"Low: {candle['low']:g}  Close: {candle['close']:g}\n"
-        f"Structure break: {'Yes' if signal['break'] else 'No'}"
+        f"SMA 50: {sma_value:g}"
     )
 
 
@@ -78,14 +76,12 @@ def send_alert(
     chat_id,
     symbol,
     candle,
-    signal,
+    sma_value,
     *,
     chart_candles=None,
-    chart_signals=None,
-    chart_marks=None,
     exchange="binance",
 ):
-    message = _alert_message(symbol, candle, signal)
+    message = _alert_message(symbol, candle, sma_value)
     if chart_candles is None:
         request = Request(
             f"https://api.telegram.org/bot{token}/sendMessage",
@@ -105,13 +101,10 @@ def send_alert(
         image_path = Path(directory) / "alert.png"
         plot_candles(
             chart_candles,
-            chart_marks or [],
             symbol,
             exchange,
             INTERVAL,
-            14,
             str(image_path),
-            displacement_signals=chart_signals,
         )
         _send_telegram_photo(token, chat_id, message, image_path)
 
@@ -132,7 +125,7 @@ def save_state(state):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Telegram alerts for 4H displacement candles")
+    parser = argparse.ArgumentParser(description="Telegram alerts for 4H 50 SMA intersections")
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--exchange", choices=("binance", "hype"), default="binance")
     args = parser.parse_args()
@@ -160,8 +153,7 @@ def main():
             candles = [
                 c for c in fetched_candles if c["time"] + 4 * 60 * 60 <= now
             ]
-            signals = find_displacements(candles)
-            rsi_marks = find_entries(calculate_rsi(fetched_candles), 70, 30)
+            sma_values = simple_moving_average(candles, 50)
 
             if candles:
                 if last_closed_time is None:
@@ -183,33 +175,22 @@ def main():
                         }
                         save_state(state)
 
-                        source = index - 1  # FVG confirms and colors the prior candle.
-                        signal = signals[source] if source >= 0 else None
-                        if signal is not None:
+                        sma_value = sma_values[index]
+                        if sma_value is not None and candle["low"] <= sma_value <= candle["high"]:
                             # Add the latest in-progress candle to the image,
                             # while keeping signal calculations on closed bars.
                             chart_end = len(fetched_candles)
                             chart_start = max(0, chart_end - CHART_CANDLES)
-                            chart_signals = signals + [
-                                None
-                            ] * (len(fetched_candles) - len(signals))
-                            chart_marks = [
-                                (mark_index - chart_start, label, value)
-                                for mark_index, label, value in rsi_marks
-                                if chart_start <= mark_index < chart_end
-                            ]
                             send_alert(
                                 token,
                                 chat_id,
                                 symbol,
-                                candles[source],
-                                signal,
+                                candle,
+                                sma_value,
                                 chart_candles=fetched_candles[chart_start:chart_end],
-                                chart_signals=chart_signals[chart_start:chart_end],
-                                chart_marks=chart_marks,
                                 exchange=args.exchange,
                             )
-                            print(f"Sent {signal['direction']} chart alert for {symbol}")
+                            print(f"Sent 50 SMA intersection chart alert for {symbol}")
         except Exception as exc:
             print(f"Alert check failed: {exc}")
 

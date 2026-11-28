@@ -9,42 +9,30 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection, PolyCollection
 
-from mark_entries import find_entries, mark_entries
 from data_fetch import fetch_candles
-from indicators import calculate_rsi, find_displacements, simple_moving_average
+from indicators import simple_moving_average
 
 IST = ZoneInfo("Asia/Kolkata")
 
 
 def plot_candles(
     candles: list[dict],
-    marks: list[tuple[int, str, float]],
     symbol: str,
     exchange: str,
     interval: str,
-    period: int,
-    output: str | None,
-    displacement_signals: list[dict | None] | None = None,
+    output: str | None = None,
 ) -> None:
     times = [datetime.fromtimestamp(candle["time"], tz=IST) for candle in candles]
     x_values = mdates.date2num(times)
     spacing = (x_values[-1] - x_values[0]) / max(len(x_values) - 1, 1)
     candle_width = spacing * 0.7
-    prices = [price for candle in candles for price in (candle["low"], candle["high"])]
-    price_range = max(prices) - min(prices) or max(prices) * 0.01 or 1
     fig, ax = plt.subplots(figsize=(14, 7))
     wick_segments: dict[str, list[list[tuple[float, float]]]] = {}
     doji_segments: dict[str, list[list[tuple[float, float]]]] = {}
     body_vertices: dict[str, list[list[tuple[float, float]]]] = {}
-    for index, (x, candle) in enumerate(zip(x_values, candles)):
+    for x, candle in zip(x_values, candles):
         rising = candle["close"] >= candle["open"]
-        signal = displacement_signals[index] if displacement_signals else None
-        if signal:
-            color = "#60A5FA" if signal["direction"] == "bullish" else "#FFFF00"
-            if signal["break"]:
-                color = "#1E3195" if signal["direction"] == "bullish" else "#E6C800"
-        else:
-            color = "#26a69a" if rising else "#ef5350"
+        color = "#26a69a" if rising else "#ef5350"
         wick_segments.setdefault(color, []).append(
             [(x, candle["low"]), (x, candle["high"])]
         )
@@ -97,39 +85,8 @@ def plot_candles(
             zorder=3,
         )
 
-    for index, label, value in marks:
-        candle = candles[index]
-        is_overbought = "\u2265" in label
-        y = (
-            candle["high"] + price_range * 0.025
-            if is_overbought
-            else candle["low"] - price_range * 0.025
-        )
-        color = "#ff9800" if is_overbought else "#42a5f5"
-        ax.scatter(
-            x_values[index],
-            y,
-            marker="v" if is_overbought else "^",
-            s=90,
-            color=color,
-            edgecolors="white",
-            linewidths=0.7,
-            zorder=5,
-            label=label,
-        )
-        ax.annotate(
-            f"{value:.1f}",
-            (x_values[index], y),
-            xytext=(0, -14 if is_overbought else 10),
-            textcoords="offset points",
-            ha="center",
-            va="top" if is_overbought else "bottom",
-            color=color,
-            fontsize=8,
-        )
-
-    # Keep a small border around the candles and RSI labels while using more
-    # of the available chart area.
+    # Keep a small border around the candles while using more of the available
+    # chart area.
     ax.margins(x=0.01, y=0.10)
     left_limit, right_limit = ax.get_xlim()
     ax.set_xlim(left=left_limit, right=right_limit + spacing * 15)
@@ -160,7 +117,7 @@ def plot_candles(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Fetch candles, report RSI entries, and plot them."
+        description="Fetch candles and plot them."
     )
     parser.add_argument("--exchange", choices=("binance", "hype"), default="binance")
     parser.add_argument(
@@ -174,7 +131,6 @@ def main() -> int:
     parser.add_argument(
         "--limit", type=int, default=1000, help="Number of candles to display (default: 1000)"
     )
-    parser.add_argument("--period", type=int, default=14, help="RSI period")
     parser.add_argument(
         "--output", help="Save image to a file instead of opening a window"
     )
@@ -182,56 +138,23 @@ def main() -> int:
 
     if args.limit < 1:
         parser.error("--limit must be at least 1")
-    if args.period < 1:
-        parser.error("--period must be at least 1")
     try:
         symbol = args.symbol.upper()
-        fetch_limit = args.limit + 300
-        history = fetch_candles(args.exchange, symbol, args.interval, fetch_limit)
-        rsi_values = calculate_rsi(history, args.period)
-        history_marks = find_entries(rsi_values, 70, 30)
-        history_signals = find_displacements(history)
-        first_visible = max(0, len(history) - args.limit)
-        candles = history[first_visible:]
-        marks = [
-            (index - first_visible, label, value)
-            for index, label, value in history_marks
-            if index >= first_visible
-        ]
-        displacement_signals = history_signals[first_visible:]
+        candles = fetch_candles(args.exchange, symbol, args.interval, args.limit)
     except (RuntimeError, KeyError, TypeError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     print(
         f"Loaded {len(candles)} chart candles for {symbol} "
-        f"({args.exchange}, {args.interval}) with ATR warm-up history."
-    )
-    mark_entries(candles, marks)
-    bullish = sum(
-        signal is not None and signal["direction"] == "bullish"
-        for signal in displacement_signals
-    )
-    bearish = sum(
-        signal is not None and signal["direction"] == "bearish"
-        for signal in displacement_signals
-    )
-    breaks = sum(
-        signal is not None and signal["break"] for signal in displacement_signals
-    )
-    print(
-        f"Found {bullish} bullish and {bearish} bearish displacement candles "
-        f"({breaks} structure breaks)."
+        f"({args.exchange}, {args.interval})."
     )
     plot_candles(
         candles,
-        marks,
         symbol,
         args.exchange,
         args.interval,
-        args.period,
         args.output,
-        displacement_signals=displacement_signals,
     )
     return 0
 
